@@ -1,177 +1,100 @@
-![Hybrit Logo](img/HybrITLogo.png)
+![HybrIT logo](img/HybrITLogo.png)
 
-# Introduction
+# HybrIT Services NZ - Azure Lighthouse
 
-This Repository is intended for HybrIT Services Partners to easily and securely provide access to some or all subscriptions in their Azure Tenancy.
+These templates let HybrIT Services NZ clients delegate access to some or all of their Azure subscriptions to HybrIT Services NZ through [Azure Lighthouse](https://learn.microsoft.com/azure/lighthouse/overview).
 
-The Role base Azure Lighthouse configuration uses Privelege Groups in HybrIT's own AD Tenant. This provides a mechanism for auditable JIT privilege access at no additional cost to the partner.
+Access is granted to security groups in the HybrIT Services NZ Entra ID tenant (`hybrit.nz`), never to individual accounts. HybrIT NZ engineers sign in with their own HybrIT NZ account, subject to HybrIT's MFA and Conditional Access policies, and every action they take in your subscription is recorded in your Azure Activity Log under their name. You keep full control: you can see and remove the delegation at any time.
 
-https://azure.microsoft.com/en-gb/blog/privileged-identity-management-with-azure-lighthouse-enables-zero-trust/
+- [Choose a template](#choose-a-template)
+- [Enrol a single subscription](#enrol-a-single-subscription)
+- [Enrol all subscriptions](#enrol-all-subscriptions)
+- [What access is granted](#what-access-is-granted)
+- [Moving from the HybrIT UK/Global delegation](#moving-from-the-hybrit-ukglobal-delegation)
+- [Remove access](#remove-access)
+- [Maintaining these templates](#maintaining-these-templates)
 
-This Feature was announced by Microsoft July 2021, for further reading please see Microsoft Azure Blog
+## Choose a template
 
-- [Introduction](#introduction)
-- [How to use](#how-to-use)
-  - [Apply to Single Subscription](#apply-to-single-subscription)
-  - [Apply to All Subscriptions](#apply-to-all-subscriptions)
-- [What Roles get assigned and to who?](#what-roles-get-assigned-and-to-who)
-  - [Roles](#roles)
-  - [HybrIT Groups](#hybrit-groups)
-  - [Role Assignment Summary Table](#role-assignment-summary-table)
-  - [We only want to allow Reader at this stage](#we-only-want-to-allow-reader-at-this-stage)
-    - [Apply to single subscription (reader only)](#apply-to-single-subscription-reader-only)
-    - [Apply to all subscriptions (reader only)](#apply-to-all-subscriptions-reader-only)
-- [Apply Backup Security (Resource Guard) to single subscription](#apply-backup-security-resource-guard-to-single-subscription)
-- [Remove Access](#remove-access)
+| Template | Use it for |
+| --- | --- |
+| [`templates/full.json`](templates/full.json) | Managed service clients. Full operational access. |
+| [`templates/reader.json`](templates/reader.json) | Discovery and review engagements. Read only. Deploying `full.json` later upgrades it in place. |
+| [`templates/backup-security.json`](templates/backup-security.json) | A **dedicated** subscription that holds an Azure Backup [Resource Guard](https://learn.microsoft.com/azure/backup/multi-user-authorization). Never deploy another template to that subscription. |
 
-# How to use
+## Enrol a single subscription
 
-1. Sign in to your Azure Tenancy using Windows PowerShell. Use an account that has owner rights against any subscriptions you want to enrol in Azure Lighthouse.
+Sign in with an account that holds **Owner** on the subscription, select it, and deploy. Azure PowerShell:
 
-```
+```powershell
 Connect-AzAccount
+Set-AzContext -Subscription '<subscription-id>'
+New-AzSubscriptionDeployment -Location australiaeast `
+  -TemplateUri 'https://raw.githubusercontent.com/HybrIT-NZ/platform-azure-lighthouse/main/templates/full.json'
 ```
 
-## Apply to Single Subscription
+Azure CLI:
 
-1. If you would like to HybrIT to only access a single subscription via Azure Light house check you are connected to the correct subscription
-
-```
-Get-AzContext
-```
-
-![Get-AzContext](img/get-azcontext.png)
-
-2. If you need to switch subscriptions you can use the below command
-
-```
-Select-AzSubscription -SubscriptionId <SubscriptionID>
+```bash
+az login
+az deployment sub create --subscription '<subscription-id>' --location australiaeast \
+  --template-uri 'https://raw.githubusercontent.com/HybrIT-NZ/platform-azure-lighthouse/main/templates/full.json'
 ```
 
-![Select-AzSubscription](img/select-azsubscription.png)
+Swap `full.json` for `reader.json` or `backup-security.json` as needed.
 
-3. Finally run the single powershell command to apply the template from this repository
+## Enrol all subscriptions
 
-```
-New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITLightHouse.json'
-```
+Exclude any Resource Guard subscription by name first.
 
-## Apply to All Subscriptions
-
-**Note: If you intend to use a seperate Subscription of Azure Resource Guard then ensure to deploy that subscription after running the below or apply one subscription at a time or exlude the Backup Security Subscription from the assignment**
-
-1. To apply to all subscription that your signed in user has rights to run the below commands. Firstly check you can see the intented subscriptions from your PowerShell windows
-
-```
-Get-AzSubscription
-```
-
-You should see a return of the subscriptions you have access to.
-
-![Get-AzSubscription](img/get-azsubscription.png)
-
-2. Run the below script to assign to all subscriptions
-
-```
-$subs = Get-AzSubscription
+```powershell
+$subs = Get-AzSubscription | Where-Object { $_.State -eq 'Enabled' -and $_.Name -notlike '*BackupSecurity*' }
 foreach ($sub in $subs) {
-
-    Select-AzSubscription -SubscriptionId $sub.Id
-    New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITLightHouse.json'
+    Set-AzContext -Subscription $sub.Id | Out-Null
+    New-AzSubscriptionDeployment -Location australiaeast `
+      -TemplateUri 'https://raw.githubusercontent.com/HybrIT-NZ/platform-azure-lighthouse/main/templates/full.json'
 }
-
 ```
 
-3. If you need to exclude a subscription such as BackupSecurity filter it out with the below **ensure to check your subscription name**
+## What access is granted
 
-```
-$subs = Get-AzSubscription | Where-Object { $_.name -notlike "*BackupSecurity*" }
-foreach ($sub in $subs) {
+All roles are Azure built-in roles ([reference](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles)). Azure Lighthouse does not allow Owner, custom roles or roles that read data directly.
 
-    Select-AzSubscription -SubscriptionId $sub.Id
-    New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITLightHouse.json'
-}
+| HybrIT NZ group | Role | Template |
+| --- | --- | --- |
+| Lighthouse - Azure Privilege Contributors | Contributor | full |
+| Lighthouse - Azure Privilege Contributors | Resource Policy Contributor | full |
+| Lighthouse - Azure Privilege Contributors | User Access Administrator, limited to granting Contributor to managed identities for policy remediation | full |
+| Lighthouse - Azure Privilege Contributors | Managed Services Registration assignment Delete Role (lets HybrIT remove its own access) | full |
+| Lighthouse - Azure Contributors | Contributor | full |
+| Lighthouse - Azure Operators | Reader, Virtual Machine Contributor, Backup Operator, Monitoring Contributor, Automation Operator, Automation Runbook Operator, Managed Application Operator, Site Recovery Operator, Desktop Virtualization User Session Operator | full |
+| Lighthouse - Azure Readers | Reader | all |
+| Lighthouse - Azure Backup Security | Contributor | backup-security |
 
-```
+The backup security template deliberately omits the delete role, so only you can remove that delegation.
 
-# What Roles get assigned and to who?
+## Moving from the HybrIT UK/Global delegation
 
-## Roles
+These templates register a separate offer (**HybrIT Services NZ**) and sit alongside any existing HybrIT UK/Global delegation instead of replacing it. To move across:
 
-The roles JSON template is built form the Bicep file in this repository. The bicep file contains comments to indicate which role is assigned to which group. The comments are intended to quicky interpret which groups get which roles with out the need to cross reference the Role Definition ID Manually. How ever if you would like to double check these roles can be found here.
+1. Deploy the NZ template to each subscription.
+2. HybrIT NZ confirms its engineers can see and work in the subscription.
+3. Remove the old **HybrIT IT Services** delegation and offer as described in [Remove access](#remove-access), leaving **HybrIT Services NZ** in place.
 
-https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+## Remove access
 
-## HybrIT Groups
+In the Azure portal search for **Service providers**. Under **Delegations**, select the HybrIT delegation and choose **Delete**. Then under **Service provider offers**, delete the matching offer.
 
-HybrIT are using privlege access groups to provide access into your environment. This means no user or admin will have standing access. To gain access HybrIT's consultants will need to elevate themselves into the group using Privlege Identity Management with in the HybrIT Azure AD Tenant.
-This has the benefit of having a full audit trail of who had access and when, additionally it means the licenses required for PIM are assigned within HybrIT's own Azure AD Tenant and incurs no cost to the Partner.
+![Delegations](img/serviceproviders.png)
 
-Additionally when elevating into groups with any kind of write privilege (all except reader) HybrIT's consultant will immediately be subject to MFA.
+![Service provider offers](img/serviceprovideroffers.png)
 
-## Role Assignment Summary Table
+## Maintaining these templates
 
-| Privilelege Access Group                  | Role Assignment                              |
-| ----------------------------------------- | -------------------------------------------- |
-| Lighthouse - Azure Privilege Contributors | Contributor                                  |
-| Lighthouse - Azure Privilege Contributors | Managed Services Registration assignment     |
-| Lighthouse - Azure Privilege Contributors | Resource Policy Contributor                  |
-| Lighthouse - Azure Privilege Contributors | Assign roles to Managed Identities           |
-| Lighthouse - Azure Contributors           | Contributor                                  |
-| Lighthouse - Azure Reader                 | Reader                                       |
-| Lighthouse - Azure Operators              | Virtual Machine Contributor                  |
-| Lighthouse - Azure Operators              | Backup Operator                              |
-| Lighthouse - Azure Operators              | Reader                                       |
-| Lighthouse - Azure Operators              | Log Analytics Contributor                    |
-| Lighthouse - Azure Operators              | Monitoring Contributor                       |
-| Lighthouse - Azure Operators              | Automation Operator                          |
-| Lighthouse - Azure Operators              | Automation Runbook Operator                  |
-| Lighthouse - Azure Operators              | Managed Application Operator                 |
-| Lighthouse - Azure Operators              | Site Recovery Operator                       |
-| Lighthouse - Azure Operators              | Desktop Virtualization User Session Operator |
+Source is Bicep in [`src/`](src). Tenant, group and role IDs live only in [`src/shared/nz-tenant.bicep`](src/shared/nz-tenant.bicep). After any change, rebuild the deployable JSON and commit both:
 
-## We only want to allow Reader at this stage
-
-If your engagement with HybrIT is only in the discovery phases and read access is the only requirement then you can use the same script logic as the previous section as the previous section but reference the [HybrITReaderLighthouse.json](HybrITReaderLightHouse.Bicep) file.
-
-For instructions on connecting and selecting single subscriptions please see earlier [instructions](#apply-to-single-subscription). The run the appropriate powershell command below
-
-### Apply to single subscription (reader only)
-
-```
-New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITReaderLightHouse.json'
+```bash
+for t in full reader backup-security; do az bicep build --file src/$t.bicep --outfile templates/$t.json; done
 ```
 
-### Apply to all subscriptions (reader only)
-
-```
-$subs = Get-AzSubscription
-foreach ($sub in $subs) {
-
-    Select-AzSubscription -SubscriptionId $sub.Id
-    New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITReaderLightHouse.json'
-}
-
-```
-
-# Apply Backup Security (Resource Guard) to single subscription
-
-If you require HybrIT to provide Multi-User authorization to protect your back up against "Critical Operations" such as preventing deletion by a bad actor then apply the below command against a dedicated Subscription that is used only for the purpose of Resource Guard. For more information see: https://docs.microsoft.com/en-us/azure/backup/multi-user-authorization
-
-**Be Careful not to apply other lighthouse files to your BackupSecurity Subscription**
-
-```
-New-AzSubscriptionDeployment -location uksouth -TemplateURI 'https://raw.githubusercontent.com/HybrIT-Services/AzureLighthouse/main/HybrITSecureBackupLightHouse.json'
-```
-
-# Remove Access
-
-Access can be removed at any time from the Portal or by using Azure PowerShell. To remove from Access from the portal use the search bar to find "Service Providers"
-
-Under Delegations simply select and and **Delete**
-
-![Delete](img/serviceproviders.png)
-
-To also clean up the left over "Offers" goto the **Service Provider offers** section. Again select all offers and click the **Delete** button.
-
-![Delete](img/serviceprovideroffers.png)
+Changing an authorisation only affects a client once the template is redeployed to their subscription. Before adding a role, check it has no `DataActions` (`az role definition list --name <id> --query "[0].permissions[0].dataActions"`): Lighthouse rejects those for new delegations.
