@@ -6,6 +6,8 @@ These templates let HybrIT Services NZ clients delegate access to some or all of
 
 Access is granted to security groups in the HybrIT Services NZ Entra ID tenant (`hybrit.nz`), never to individual accounts. HybrIT NZ engineers sign in with their own HybrIT NZ account, subject to HybrIT's MFA and Conditional Access policies, and every action they take in your subscription is recorded in your Azure Activity Log under their name. You keep full control: you can see and remove the delegation at any time.
 
+No HybrIT NZ engineer holds standing write access to your subscription. Every group except Readers uses [Privileged Identity Management for Groups](https://learn.microsoft.com/entra/id-governance/privileged-identity-management/concept-pim-for-groups) in the HybrIT NZ tenant: engineers are eligible, not members, and must activate the group with MFA for a maximum of 8 hours before any write role applies. The PIM licences sit in HybrIT's tenant, at no cost to you. See Microsoft's [announcement](https://azure.microsoft.com/blog/privileged-identity-management-with-azure-lighthouse-enables-zero-trust/) for how PIM and Azure Lighthouse work together.
+
 - [Choose a template](#choose-a-template)
 - [Enrol a single subscription](#enrol-a-single-subscription)
 - [Enrol all subscriptions](#enrol-all-subscriptions)
