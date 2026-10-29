@@ -10,8 +10,9 @@ var managedByTenantId = '77b037f9-03df-453a-aaf2-df88dd20320a'
 @description('Offer name shown to the client under Service providers. Also seeds the registration GUIDs, so keep it stable.')
 var mspOfferName = 'HybrIT Services NZ'
 
-// Security groups in the NZ tenant. Target model is PIM-eligible membership (no standing
-// access); membership is standing until Entra ID P2 is licensed in the NZ tenant.
+// Security groups in the NZ tenant. Every group except Readers is PIM-eligible only
+// (no standing members): activation requires MFA, no approver, 8 hours maximum.
+// Readers holds standing membership.
 @export()
 var groups = {
   privilegeContributors: {
